@@ -1,10 +1,8 @@
 const express = require('express');
 const app = express();
-const util = require('util')
-const fs = require('fs');
-var mysql = require('mysql2');
-const morgan = require("morgan");
+var mysql = require('mysql');
 const bodyParser = require("body-parser");
+const TTRDelay = 600000 ; // 10 minutes
 startTime = Date.now();
 function getTime() {
     nowTime = Date.now();
@@ -35,21 +33,69 @@ con.connect((err) => {
 /// getCollection(chunk_id:string, isApproved:boolean, isPlate:boolean)
 // collection.plate = isPlate וגם collection.approve = isApproved וגם onWork = false וגם status=false .
 async function getCollection(chunk_id, isApproved, isPlate) {
-    sql = "select c2.id, col_json from chunks c1 join collections c2 on \
+    let collection='';
+    sql = "select c2.id, col_json, collection_id from chunks c1 join collections c2 on \
             json_search(`chk_json`->>'$.collections', 'one', c2.collection_id)\
             where chunk_id='"+ chunk_id + "' \
             and colOnWork = false  and JSON_EXTRACT (`col_json`, '$.status') = false\
             and JSON_EXTRACT (`col_json`, '$.approved') = " + isApproved + " LIMIT 1 for update";
     try {
-        const collection = await doQuery(sql);
-        console.log(JSON.stringify(collection));
-        return collection ;
+        collection = await doQuery(sql);
+        console.log(`in getCollection collection = ${JSON.stringify(collection)}`);
+        console.log(`in getCollection parsed collection = ${collection.id}, ${collection.collection_id}`);
+//        return collection ;
     } catch (err) {
         console.log(err);
         throw err ;
     }
+    try{
+        TTR = Date.now()+TTRDelay ;
+        sql1 = `insert into unlockonwork set tableName='collections', id=${collection.id}, TTR=${TTR}`;
+        await doQuery(sql1);
+   
+    } catch (err) {
+        console.log(err);
+        throw err ;
+    }
+    try{
+        sql2 = `update collections set colOnWork=true where id=${collection.id}`;
+        await doQuery(sql2);
+   
+    } catch (err) {
+        console.log(err);
+        throw err ;
+    }
+    ans = JSON.parse(collection.col_json);
+    ans.collection_id = collection.collection_id ;
+    ans.onWork = true;
+    return  ans ;
+}
+async function freeCollection(collection_id){
+    try{
+        sql = `update collections set colOnWork=false where collection_id='${collection_id}'`;
+        result = await doQuery(sql);
+        console.log(result);
+        return result;
+    } catch (err) {
+        console.log(err);
+        throw err ;
+    }
+}
+async function removeImageFromCollection(in_collection_id, in_image_id){
+    sql = `call removeImageFromCollection('${in_collection_id}', '${in_image_id}')`;
+    try {
+        result = await doQuery(sql);
+        console.log(result);
+        return result;
+    } catch (err) {
+        console.log(err);
+        throw err ;
+    }
+}
+async function splitCollection(collection_id, chunk_id, index){
     
 }
+//+++++++++++++++++++++++
 app.post('/getCollection', async (req, res) => {
     chunk_id = req.body.chunk_id ;
     isApproved = req.body.isApproved ;
@@ -59,19 +105,33 @@ app.post('/getCollection', async (req, res) => {
     console.log(result);
     res.send(result);
 });
-// to insert a new collection call putCollection(collection_id: string, collection: JSON)
-function putCollection(collection_id, collection) {
-    sql = `insert into collections set collection_id = ` + collection_id;
-    sql += "', onWork = 0, `json` = '" + collection + "'";
-    con.query(sql, (error, results, fields) => {
-        if (error) {
-            console.log(error);
-            throw error;
-        }
-        console.log(results);
-        return results;
-    });
-}
+app.post('/freeCollection', async (req, res) => {
+    collection_id = req.body.collection_id;
+    result = await freeCollection(collection_id);
+    switch (result) {
+        case 1: res.send(true); break ;
+        case 0: res.send(false); break ;
+        default: res.send(result);
+    }
+    
+});
+app.post('/removeImageFromCollection', async (req, res) => {
+    collection_id = req.body.collection_id ;
+    image_id = req.body.image_id ;
+    result = await removeImageFromCollection(collection_id, image_id)
+    console.log(result);
+    res.send(result);
+});
+
+// splitCollection(chunk_id:string, collection_id:string, index:number)
+app.post('/splitCollection', async (req, res) => {
+    collection_id = req.body.collection_id ;
+    chunk_id = req.body.chunk_id ;
+    index = req.body.index ;
+    result = await splitCollection(collection_id, chunk_id, index);
+    console.log(result);
+    res.send(result);
+});
 
 // ==============================================================
 
@@ -86,18 +146,22 @@ function getTime(line) {
 }
 function doQuery(sql) {
     return new Promise((resolve, reject) => {
-//        console.log(`\nin doQuery SQL = ${sql}`);
+       console.log(`\nin doQuery SQL = ${sql}`);
         
         con.query(sql, (error, result, fields) => {
             if (error) {
                 console.log(`Error: ${error}, \n SQL=${sql}`);
                 reject(error);
             }
-            console.log(`JSON.stringify : ${JSON.stringify(result[0])}`);
-            ans = JSON.parse(JSON.stringify(result[0]));
-            console.log(ans.id);
-            console.log(ans.col_json);
-            resolve(ans);
+            console.log(`in doQuery - result = ${JSON.stringify(result)}`);
+            console.log(`in doQuery - fields = ${fields}`);
+//            console.log(`in doQuery - JSON.stringify : ${JSON.stringify(result[0])}`);
+//            ans = JSON.parse(JSON.stringify(result[0]));
+            if (result.affectedRows !== undefined) {
+                resolve (result.affectedRows);
+            } else {
+                resolve(result[0]);
+            }
         })
     })
 }

@@ -35,7 +35,7 @@ function doQuery(sql) {
                 reject(error);
             }
             arr = Object.values(result[0])[0];
-//            console.log(arr);
+            //            console.log(arr);
             resolve(arr);
         })
     })
@@ -44,11 +44,11 @@ async function createImage(image) {
     sql = "select newImage('" + JSON.stringify(image) + "')";
     try {
         image_id = await doQuery(sql);
-        getTime('image_id = '+image_id);
+        getTime('image_id = ' + image_id);
         return (image_id);
-    }catch (err) {
-//            console.log(err);
-            throw err;
+    } catch (err) {
+        //            console.log(err);
+        throw err;
     }
 }
 
@@ -69,7 +69,7 @@ async function createCollection(images) {
         collection_id = await doQuery(sql1);
         return collection_id;
     } catch (err) {
-//        console.log(err);
+        //        console.log(err);
         throw err;
     }
 }
@@ -81,29 +81,30 @@ async function createChunk(key, value) {
         "status": false
     };
     chunk.chunk_id = value.id;
-    if (value.hasOwnProperty('collections')) {
-        for (collection of value.collections) {
-            try {
-                collection_id = await createCollection(collection);
-                chunk.collections.push(collection_id);
-            } catch (err) {
-//                console.log(err);
-                throw err;
-            }
+//    console.log(`\n+++++++++++++++++\ncreating key: ${key}, chunk_id: ${chunk.chunk_id}`);
+    for (collection of value.collections) {
+        try {
+            collection_id = await createCollection(collection);
+            chunk.collections.push(collection_id);
+//            console.log(`\nchunk.chunk_id: ${chunk.chunk_id}, collection_id : ${collection_id}`);
+        } catch (err) {
+            //                console.log(err);
+            throw err;
+        }
 
+    }
+
+    for (image of value.singles) {
+        try {
+            image_id = await createImage(image)
+            chunk.singles.push(image_id)
+//            console.log(`\nchunk.chunk_id: ${chunk.chunk_id}, image_id : ${image_id}`);
+        } catch (err) {
+            //                console.log(err);
+            throw err;
         }
     }
-    if (value.hasOwnProperty('singles')) {
-        for (image of value.singles) {
-            try {
-                image_id = await createImage(image)
-                chunk.singles.push(image_id)
-            } catch (err) {
-//                console.log(err);
-                throw err;
-            }
-        }
-    }
+
     sql2 = "select newChunk('" + JSON.stringify(chunk) + "')";
     try {
         chunk_id = await doQuery(sql2);
@@ -116,7 +117,7 @@ async function createChunk(key, value) {
 async function parseObject(obj) {
     for (let [key, value] of Object.entries(obj)) {
         console.log(`key ${key}`);
-        if (key.value <1) exit();
+        if (key.value < 1) exit();
         if (value.hasOwnProperty('id')) {
             await createChunk(key, value);
         } else {
@@ -130,19 +131,19 @@ function loadfinaljson() {
     parseObject(data);
     console.log('loadfinaljson - success');
 };
-function exit () {
+function exit() {
     console.log('server is starting cleanup')
-   
+
     return new Promise((resolve, reject) => {
-     con.end((err) => {
-      if (err) {
-       console.error('error during disconnection', err.stack)
-       return reject(err)
-      }
-      console.log('db has disconnected')
-      return resolve()
-     })
+        con.end((err) => {
+            if (err) {
+                console.error('error during disconnection', err.stack)
+                return reject(err)
+            }
+            console.log('db has disconnected')
+            return resolve()
+        })
     })
-   }
+}
 loadfinaljson();
 getTime('About to exit');
