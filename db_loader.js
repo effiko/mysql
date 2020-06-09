@@ -68,9 +68,8 @@ async function createImage(image, chunk_id, collection_id) {
     path=image.path;
     transaction=image.transaction;
     gate=image.gate;
-	[d,m,y] = image.date.split('/');
-    img_time = Date.parse(`${y}-${m}-${d} 05:31:10`)/1000;
-    console.log(`img_time = ${img_time}`)
+	img_date = image.date;
+    img_time = image.time;
     motor_crop=image.motor_crop;
     plate_crop=image.plate_crop;
     /*
@@ -83,7 +82,8 @@ async function createImage(image, chunk_id, collection_id) {
 	`plate_crop` VARCHAR(50),
 	`path` VARCHAR(250)
     */
-    sql = `select newImage1('${chunk_id}', '${collection_id}', '${transaction}', '${gate}', '${img_time}', '${motor_crop}', '${plate_crop}', '${path}') as image`;
+    sql = `select newImage1("${chunk_id}", "${collection_id}", "${transaction}", "${gate}", 
+        "${img_date}", "${img_time}", "${motor_crop}", "${plate_crop}", "${path}") as image`;
     try {
         image_id = await doQuery(sql);
         getTime(`image_id =  ${image}`);
