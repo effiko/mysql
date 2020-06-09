@@ -2,7 +2,7 @@ const express = require('express');
 const app = express();
 var mysql = require('mysql');
 const bodyParser = require("body-parser");
-const TTRDelay = 600000 ; // 10 minutes
+const TTRDelay = 600000; // 10 minutes
 startTime = Date.now();
 function getTime() {
     nowTime = Date.now();
@@ -10,7 +10,6 @@ function getTime() {
     startTime = nowTime;
     return (`\n ${diffTime} milisec\n`);
 }
-// app.use(morgan("dev"));
 app.use(bodyParser.urlencoded({ extended: false }));
 app.use(bodyParser.json());
 
@@ -33,33 +32,34 @@ con.connect((err) => {
 // @input : col_json : JSON string
 // @process: create the collection, add it's ID to the chunk 
 // @output: a JSON string with embeded collection_id
-async function addNewCollection(col_json, chunk_id){
-    sql = `newCollection(${col_json})`;
- try {
-    col_id = await doQuery(sql);
-    col_json.collection_id = col_id;
-    console.log(`col_id: ${col_id}, col_json=${col_json}`);
-    
-} catch (err) {
-    console.log(err);
-    throw err ;
-}
-sql = `update chunks set chk_json = json_append(chk_json->>'$.collections', '${col_id}') \
-chunks where chunk_id = ${chunk_id}`;
-try {
-    result = await doQuery(sql);
-console.log(result);
-return col_right;
-   
-} catch (err) {
-    console.log(err);
-    throw err ;
-}
+async function addNewCollection(col_json, chunk_id) {
+    sql = `select newCollection('${col_json}') as col_id`;
+    try {
+        col_id = await doQuery(sql);
+        collection_id = JSON.parse(JSON.stringify(col_id)).col_id;
+        col_json = JSON.parse(col_json);
+        col_json.collection_id = collection_id;
+        console.log(`\n in addNewCollection collection_id: ${collection_id}, col_json=${JSON.stringify(col_json)}`);
+
+    } catch (err) {
+        console.log(err);
+        throw err;
+    }
+    sql = `update chunks set chk_json = JSON_ARRAY_APPEND(chk_json, '$.collections', '${collection_id}') where chunk_id = '${chunk_id}'`;
+    try {
+        result = await doQuery(sql);
+        console.log(result);
+        return JSON.stringify(col_json);
+
+    } catch (err) {
+        console.log(err);
+        throw err;
+    }
 }
 /// getCollection(chunk_id:string, isApproved:boolean, isPlate:boolean)
 // collection.plate = isPlate וגם collection.approve = isApproved וגם onWork = false וגם status=false .
 async function getCollection(chunk_id, isApproved, isPlate) {
-    let collection='';
+    let collection = '';
     sql = "select c2.id, col_json, collection_id from chunks c1 join collections c2 on \
             json_search(`chk_json`->>'$.collections', 'one', c2.collection_id)\
             where chunk_id='"+ chunk_id + "' \
@@ -69,54 +69,54 @@ async function getCollection(chunk_id, isApproved, isPlate) {
         collection = await doQuery(sql);
         console.log(`in getCollection collection = ${JSON.stringify(collection)}`);
         console.log(`in getCollection parsed collection = ${collection.id}, ${collection.collection_id}`);
-//        return collection ;
+        //        return collection ;
     } catch (err) {
         console.log(err);
-        throw err ;
+        throw err;
     }
-    try{
-        TTR = Date.now()+TTRDelay ;
+    try {
+        TTR = Date.now() + TTRDelay;
         sql1 = `insert into unlockonwork set tableName='collections', id=${collection.id}, TTR=${TTR}`;
         await doQuery(sql1);
-   
+
     } catch (err) {
         console.log(err);
-        throw err ;
+        throw err;
     }
-    try{
+    try {
         sql2 = `update collections set colOnWork=true where id=${collection.id}`;
         await doQuery(sql2);
-   
+
     } catch (err) {
         console.log(err);
-        throw err ;
+        throw err;
     }
     ans = JSON.parse(collection.col_json);
-    ans.collection_id = collection.collection_id ;
+    ans.collection_id = collection.collection_id;
     ans.onWork = true;
-    return  ans ;
+    return ans;
 }
-async function freeCollection(collection_id){
-    try{
+async function freeCollection(collection_id) {
+    try {
         sql = `update collections set colOnWork=false where collection_id='${collection_id}'`;
         freeResult = await doQuery(sql);
         console.log(result);
-//        return result;
+        //        return result;
     } catch (err) {
         console.log(err);
-        throw err ;
+        throw err;
     }
-    try{
+    try {
         sql = `delete from unlockonwork  where tableName='collections' and collection_id='${collection_id}'`;
         result = await doQuery(sql);
         console.log(result);
         return freeResult;
     } catch (err) {
         console.log(err);
-        throw err ;
+        throw err;
     }
 }
-async function removeImageFromCollection(in_collection_id, in_image_id){
+async function removeImageFromCollection(in_collection_id, in_image_id) {
     sql = `call removeImageFromCollection('${in_collection_id}', '${in_image_id}')`;
     try {
         result = await doQuery(sql);
@@ -124,35 +124,35 @@ async function removeImageFromCollection(in_collection_id, in_image_id){
         return result;
     } catch (err) {
         console.log(err);
-        throw err ;
+        throw err;
     }
 }
-async function splitCollection(collection_id, chunk_id, index){
+async function splitCollection(collection_id, chunk_id, index) {
     sql = `select col_json from collections where collection_id = '${collection_id}'`;
     try {
-        result = await doQuery(sql);
-        console.log(result);
+        col_json = await doQuery(sql);
     } catch (err) {
         console.log(err);
-        throw err ;
+        throw err;
     }
-    col_right = col_json;
-    col_right.images = col_right.images.slice(index);
-    col_left  = col_json;
-    col_left.images = col_left.images.slice(0,index);
-    collection_left = addNewCollection(JSON.stringify(col_left));
-    collection_right = addNewCollection(JSON.stringify(col_right));
-    sql=`update chunks set chk_json = 
-    JSON_REMOVE(chk_json, JSON_UNQUOTE(JSON_SEARCH(chk_json->'$.collections', 'one', ${collection_id})))
-    where chunk_id = ${chunk_id}`;
+    col_right = JSON.parse(col_json.col_json);
+    col_left = JSON.parse(col_json.col_json);
+    images = col_right.images;
+
+    col_right.images = images.slice(index);
+    col_left.images = images.slice(0, index);
+    coll_r = JSON.stringify(col_right);
+    coll_l = JSON.stringify(col_left);
+    sql = `select splitCollection('${coll_l}', '${coll_r}', '${collection_id}', '${chunk_id}') as collection`;
     try {
         result = await doQuery(sql);
         console.log(result);
     } catch (err) {
         console.log(err);
-        throw err ;
+        throw err;
     }
-    return collection_right;
+    return result;
+
 }
 /*
 approveCollection(chunk_id:string, collection_id:string)
@@ -161,24 +161,140 @@ approveCollection(chunk_id:string, collection_id:string)
 מחזיר: etCollection(chunk_id, false, false)
 
 */
-async function approveCollection(collection_id, chunk_id){
-sql = `update collections set col_json = json_replace(col_json->>'$.approved', true)
+async function approveCollection(collection_id, chunk_id) {
+    sql = `update collections set col_json = json_replace(col_json->>'$.approved', true)
 where collection_id = ${collection_id};`
-try {
-    result = await doQuery(sql);
-    console.log(result);
-} catch (err) {
-    console.log(err);
-    throw err ;
+    try {
+        result = await doQuery(sql);
+        console.log(result);
+    } catch (err) {
+        console.log(err);
+        throw err;
+    }
+    return getCollection(chunk_id, false, false);
 }
-return getCollection(chunk_id, false, false);
+/* spreadCollection(chunk_id:string, collection_id:string)
+מעביר את כל התמונות במקבץ לבודדים.
+מסיר את המקבץ מה-chunk.
+מוחק את המקבץ מרשימת המקבצים.
+מחזיר: getCollection(chunk_id, false, false)
+
+*/
+async function spreadCollection(chunk_id, collection_id) {
+    try {
+        sql = `select JSON_EXTRACT(col_json, '$.images') as images from collections where collection_id='${collection_id}'`;
+        images = await doQuery(sql);
+        images = JSON.parse(images.images);
+        sql = `select JSON_EXTRACT(chk_json, '$.singles') as singles from chunks where chunk_id='${chunk_id}'`;
+        singles = await doQuery(sql);
+        singles = JSON.parse(singles.singles);
+        singles.concat(images);
+        singles = JSON.stringify(singles);
+        console.log(`\n singles - ${singles}`);
+        sql = `update chunks set chk_json = JSON_REPLACE(chk_json, '$.singles', JSON_ARRAY(${singles.substring(1, singles.length - 1)})) where chunk_id='${chunk_id}'`;
+        chunk = await doQuery(sql);
+        sql = `delete from collections where collection_id='${collection_id}'`;
+        collection = await doQuery(sql);
+    } catch (err) {
+        console.log(`\n catch err in spreadCollection ${err}`);
+        throw err;
+
+    }
+    return getCollection(chunk_id, false, false);
+}
+/*
+
+disapproveCollection(chunk_id:string, collection_id:string)
+משנה במקבץ: approved=false.
+משנה במקבץ: onWork=false.
+מחזיר: getCollection(chunk_id, true, false)
+
+*/
+async function disapproveCollection(chunk_id, collection_id){
+    try {
+        sql = `update collections set colOnWork=false, col_json=JSON_REPLACE(col_json, '$.approved', false) where collection_id='${collection_id}'`;
+        status = await doQuery(sql);
+    } catch (err) {
+        console.log(`\n catch err in disapproveCollection ${err}`);
+        throw err;
+    }
+    return getCollection(chunk_id, false, false);
+}
+/*
+rejectImages(chunk_id:string, collection_id:string, reason:string)
+לכל תמונה במקבץ: rejection=reason.
+משנה במקבץ: status=true.
+משנה במקבץ: onWork=false.
+מחזיר: getCollection(chunk_id, true, true)
+*/
+async function rejectImages(chunk_id, collection_id, reason){
+    try {
+        sql = `select JSON_EXTRACT(col_json, '$.images') as images from collections where collection_id='${collection_id}'`;
+        images = await doQuery(sql);
+        images = JSON.parse(images.images);
+        await images.forEach(element => {
+            sql = `update images set img_json =  JSON_INSERT(img_json, '$.rejection', '${reason}') where image_id='${element}'`;
+            res =  doQuery(sql);
+        });
+        sql = `update collections set colOnWork=false, col_json=JSON_REPLACE(col_json, '$.status', true) where collection_id='${collection_id}'`;
+        status = await doQuery(sql);
+        sql = `delete from collections where collection_id='${collection_id}'`;
+        collection = await doQuery(sql);
+    } catch (err) {
+        console.log(`\n catch err in rejectImages ${err}`);
+        throw err;
+    }
+    return getCollection(chunk_id, false, false);
+}
+/*
+setCollectionPlate(chunk_id:string, collection_id:string, plate:{type:number,number:string}, isPlate:boolean)
+שם במקבץ: plate = plate
+-	אם plate.number לא מכיל '?'  לשנות במקבץ: status=true
+משנה במקבץ: onWork=false.
+מחזיר: את getCollection(chunk_id, true, isPlate)
+*/
+
+async function setCollectionPlate(chunk_id, collection_id, plate, isPlate){
+    plate = JSON.parse((plate));
+    console.log(`plate number is ${plate.number}`);
+    try {
+        sql = `update collections set colOnWork=false, col_json=JSON_REPLACE(col_json, '$.plate', '${JSON.stringify(plate)}'`;
+        if (plate.number.search(/\?/) === -1) {
+            status=true;
+            sql = sql + `, '$.status', ${status}`;
+        }
+        sql = sql + `) where collection_id='${collection_id}'`;
+        status = await doQuery(sql);
+    } catch (err) {
+        console.log(`\n catch err in setCollectionPlate ${err}`);
+        throw err;
+    }
+    return getCollection(chunk_id, false, isPlate);
+}
+/*
+closeCollections(chunk_id:string)
+בתוך ה-chunk: לכל מקבץ עם status=true וגם plate!=null: 
+-	לכל תמונה: 
+o	לשים image.plate=collection.plate 
+o	להעביר את התמונה מimages- לtransactions-
+מחזיר: הצליח/לא הצליח true/false))
+*/
+async function closeCollections(chunk_id){
+    try {
+        sql = `select collection_id from collections ollections set colOnWork=false, col_json=JSON_REPLACE(col_json, '$.approved', false) where collection_id='${collection_id}'`;
+        status = await doQuery(sql);
+    } catch (err) {
+        console.log(`\n catch err in disapproveCollection ${err}`);
+        throw err;
+    }
+    return successStatus;
 }
 //+++++++++++++++++++++++
 app.post('/getCollection', async (req, res) => {
-    chunk_id = req.body.chunk_id ;
-    isApproved = req.body.isApproved ;
-    isPlate = req.body.isPlate ;
-//    console.log(`chunk_id = ${chunk_id}, isApproved = ${isApproved}, isPlate = ${isPlate} `);
+    chunk_id = req.body.chunk_id;
+    isApproved = req.body.isApproved;
+    isPlate = req.body.isPlate;
+    //    console.log(`chunk_id = ${chunk_id}, isApproved = ${isApproved}, isPlate = ${isPlate} `);
     result = await getCollection(chunk_id, isApproved, isPlate)
     console.log(result);
     res.send(result);
@@ -187,15 +303,15 @@ app.post('/freeCollection', async (req, res) => {
     collection_id = req.body.collection_id;
     result = await freeCollection(collection_id);
     switch (result) {
-        case 1: res.send(true); break ;
-        case 0: res.send(false); break ;
+        case 1: res.send(true); break;
+        case 0: res.send(false); break;
         default: res.send(result);
     }
-    
+
 });
 app.post('/removeImageFromCollection', async (req, res) => {
-    collection_id = req.body.collection_id ;
-    image_id = req.body.image_id ;
+    collection_id = req.body.collection_id;
+    image_id = req.body.image_id;
     result = await removeImageFromCollection(collection_id, image_id)
     console.log(result);
     res.send(result);
@@ -203,19 +319,52 @@ app.post('/removeImageFromCollection', async (req, res) => {
 
 // splitCollection(chunk_id:string, collection_id:string, index:number)
 app.post('/splitCollection', async (req, res) => {
-    collection_id = req.body.collection_id ;
-    chunk_id = req.body.chunk_id ;
-    index = req.body.index ;
+    collection_id = req.body.collection_id;
+    chunk_id = req.body.chunk_id;
+    index = req.body.splitIndex;
     result = await splitCollection(collection_id, chunk_id, index);
     console.log(result);
     res.send(result);
 });
 // approveCollection(chunk_id:string, collection_id:string)
 app.post('/approveCollection', async (req, res) => {
-    collection_id = req.body.collection_id ;
-    chunk_id = req.body.chunk_id ;
-    index = req.body.index ;
+    collection_id = req.body.collection_id;
+    chunk_id = req.body.chunk_id;
+    index = req.body.index;
     result = await approveCollection(collection_id, chunk_id);
+    console.log(result);
+    res.send(result);
+});
+app.post('/spreadCollection', async (req, res) => {
+    collection_id = req.body.collection_id;
+    chunk_id = req.body.chunk_id;
+    result = await spreadCollection(chunk_id, collection_id);
+    console.log(result);
+    res.send(result);
+});
+app.post('/disapproveCollection', async (req, res) => {
+    collection_id = req.body.collection_id;
+    chunk_id = req.body.chunk_id;
+    result = await disapproveCollection(chunk_id, collection_id);
+    console.log(result);
+    res.send(result);
+});
+
+app.post('/rejectImages', async (req, res) => {
+    collection_id = req.body.collection_id;
+    chunk_id = req.body.chunk_id;
+    reason = req.body.reason;
+    result = await rejectImages(chunk_id, collection_id, reason);
+    console.log(result);
+    res.send(result);
+});
+
+app.post('/setCollectionPlate', async (req, res) => {
+    collection_id = req.body.collection_id;
+    chunk_id = req.body.chunk_id;
+    plate = req.body.plate;
+    isPlate = req.body.isPlate;
+    result = await setCollectionPlate(chunk_id, collection_id, plate, isPlate);
     console.log(result);
     res.send(result);
 });
@@ -232,23 +381,24 @@ function getTime(line) {
 }
 function doQuery(sql) {
     return new Promise((resolve, reject) => {
-       console.log(`\nin doQuery SQL = ${sql}`);
-        
+        console.log(`\nin doQuery SQL = ${sql}`);
         con.query(sql, (error, result, fields) => {
             if (error) {
                 console.log(`Error: ${error}, \n SQL=${sql}`);
                 reject(error);
             }
             console.log(`in doQuery - result = ${JSON.stringify(result)}`);
-            console.log(`in doQuery - fields = ${fields}`);
-//            console.log(`in doQuery - JSON.stringify : ${JSON.stringify(result[0])}`);
-//            ans = JSON.parse(JSON.stringify(result[0]));
+            //            ans = JSON.parse(JSON.stringify(result[0]));
             if (result.affectedRows !== undefined) {
-                resolve (result.affectedRows);
+                resolve(result.affectedRows);
             } else {
-                resolve(result[0]);
+                if (result[0] !== undefined) {
+                    resolve(result[0]);
+                } else {
+                    resolve(null);
+                }
             }
         })
     })
 }
- app.listen(3000);
+app.listen(3000);

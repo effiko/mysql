@@ -17,6 +17,17 @@ con.connect((err) => {
     }
     console.log('1. connected as id ' + con.threadId);
 });
+async function cleanUp(){
+    status='';
+    status +=await doQuery('truncate table images');
+    console.log(status);
+    status+=await doQuery('truncate table collections');
+    console.log(status);
+    status+=await doQuery('truncate table chunks');
+    console.log(status);
+    return status;
+}
+
 // +++++++++++++++++++++++++++++++++++++++++++++
 beginTime = Date.now();
 startTime = Date.now();
@@ -29,89 +40,101 @@ function getTime(line) {
 }
 function doQuery(sql) {
     return new Promise((resolve, reject) => {
+        console.log(`\nin doQuery SQL = ${sql}`);
         con.query(sql, (error, result, fields) => {
             if (error) {
                 console.log(`Error: ${error}, \n SQL=${sql}`);
                 reject(error);
             }
-            arr = Object.values(result[0])[0];
-            //            console.log(arr);
-            resolve(arr);
+            console.log(`in doQuery - result = ${JSON.stringify(result)}`);
+            //            ans = JSON.parse(JSON.stringify(result[0]));
+            if (result.affectedRows !== undefined) {
+                resolve(result.affectedRows);
+            } else {
+                if (result[0] !== undefined) {
+                    resolve(result[0]);
+                } else {
+                    resolve(null);
+                }
+            }
         })
     })
 }
-async function createImage(image) {
-    sql = "select newImage('" + JSON.stringify(image) + "')";
+async function createImage(image, chunk_id, collection_id) {
+    console.log(`chunk_id, collection_id, image: ${chunk_id}, ${collection_id}, ${image}`);
+    
+    image = JSON.parse(JSON.stringify(image));
+    console.log(`image ${image}`);
+    path=image.path;
+    transaction=image.transaction;
+    gate=image.gate;
+	[d,m,y] = image.date.split('/');
+    img_time = Date.parse(`${y}-${m}-${d} 05:31:10`)/1000;
+    console.log(`img_time = ${img_time}`)
+    motor_crop=image.motor_crop;
+    plate_crop=image.plate_crop;
+    /*
+	`in_chunk_id` VARCHAR(50),
+	`in_collection_id` VARCHAR(50),
+	`in_transaction` INT,
+	`gate` VARCHAR(50),
+	`img_time` TIMESTAMP,
+	`motor_crop` VARCHAR(50),
+	`plate_crop` VARCHAR(50),
+	`path` VARCHAR(250)
+    */
+    sql = `select newImage1('${chunk_id}', '${collection_id}', '${transaction}', '${gate}', '${img_time}', '${motor_crop}', '${plate_crop}', '${path}') as image`;
     try {
         image_id = await doQuery(sql);
-        getTime('image_id = ' + image_id);
-        return (image_id);
+        getTime(`image_id =  ${image}`);
     } catch (err) {
-        //            console.log(err);
+        console.log(err);
         throw err;
     }
 }
 
-async function createCollection(images) {
+async function createCollection(images, chunk_id) {
     collection = {
         "images": [],
         "approved": false,
         "plate": false,
         "status": false
     };
-    collection_id = "";
-    for (image of images) {
-        image_id = await createImage(image)
-        collection.images.push(image_id);
-    }
-    sql1 = "select newCollection('" + JSON.stringify(collection) + "')";
-    try {
-        collection_id = await doQuery(sql1);
-        return collection_id;
+    try{
+        sql = `select newCollection1('${chunk_id}') as collection`;
+        collection_id = await doQuery(sql);
+        collection_id = collection_id.collection;
+        i=0;
+        for (image of images) {
+            image_id = await createImage(image, chunk_id, collection_id);
+            if (i++ > 3) break;
+        }
     } catch (err) {
         //        console.log(err);
         throw err;
     }
 }
 async function createChunk(key, value) {
-    chunk = {
-        "chunk_id": "",
-        "collections": [],
-        "singles": [],
-        "status": false
-    };
-    chunk.chunk_id = value.id;
-//    console.log(`\n+++++++++++++++++\ncreating key: ${key}, chunk_id: ${chunk.chunk_id}`);
-    for (collection of value.collections) {
-        try {
-            collection_id = await createCollection(collection);
-            chunk.collections.push(collection_id);
-//            console.log(`\nchunk.chunk_id: ${chunk.chunk_id}, collection_id : ${collection_id}`);
-        } catch (err) {
-            //                console.log(err);
-            throw err;
+    try { 
+        console.log(`in createChunk key = ${key}, valueId=${value.id}`);
+        chunk_id = value.id ;
+        sql=`INSERT INTO bikes.chunks
+        ( chunk_id, chkOnWork, chkStatus)
+        VALUES ( '${value.id}', false, false)
+        ON DUPLICATE KEY UPDATE chkOnWork=false, chkStatus=false`;
+        const chunk = await doQuery(sql); 
+        i=0;
+        for (collection of value.collections) {
+            collection_id = await createCollection(collection, value.id);
+        }
+        i=0;
+        for (image of value.singles) { // Singles have only chunk_id and collection_id is null
+            image_id = await createImage(image, value.id, '-');
         }
 
-    }
-
-    for (image of value.singles) {
-        try {
-            image_id = await createImage(image)
-            chunk.singles.push(image_id)
-//            console.log(`\nchunk.chunk_id: ${chunk.chunk_id}, image_id : ${image_id}`);
-        } catch (err) {
-            //                console.log(err);
-            throw err;
-        }
-    }
-
-    sql2 = "select newChunk('" + JSON.stringify(chunk) + "')";
-    try {
-        chunk_id = await doQuery(sql2);
-        console.log(chunk_id);
     } catch (err) {
-        console.log(`Line 112 ${err}`);
-        throw err;
+            console.log(err);
+            throw err;
     }
 }
 async function parseObject(obj) {
@@ -145,5 +168,11 @@ function exit() {
         })
     })
 }
-loadfinaljson();
+/*
+cleanUp().then ((status) =>{
+    console.log(status);
+})
+*/
+setTimeout( loadfinaljson, 3000);
+
 getTime('About to exit');
