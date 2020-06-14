@@ -60,6 +60,8 @@ function doQuery(sql) {
         })
     })
 }
+imageList='';
+psik='';
 async function createImage(image, chunk_id, collection_id) {
     console.log(`chunk_id, collection_id, image: ${chunk_id}, ${collection_id}, ${image}`);
     
@@ -82,11 +84,12 @@ async function createImage(image, chunk_id, collection_id) {
 	`plate_crop` VARCHAR(50),
 	`path` VARCHAR(250)
     */
-    sql = `select newImage1("${chunk_id}", "${collection_id}", "${transaction}", "${gate}", 
+    sql = `select newImage("${chunk_id}", "${collection_id}", "${transaction}", "${gate}", 
         "${img_date}", "${img_time}", "${motor_crop}", "${plate_crop}", "${path}") as image`;
     try {
         image_id = await doQuery(sql);
-        getTime(`image_id =  ${image}`);
+        imageList += psik + `'${image_id.image}'`;
+        psik = ',';
     } catch (err) {
         console.log(err);
         throw err;
@@ -101,14 +104,16 @@ async function createCollection(images, chunk_id) {
         "status": false
     };
     try{
-        sql = `select newCollection1('${chunk_id}') as collection`;
+        sql = `select newCollection('${chunk_id}') as collection`;
         collection_id = await doQuery(sql);
         collection_id = collection_id.collection;
-        i=0;
+        imageList='';
+        psik='';
         for (image of images) {
             image_id = await createImage(image, chunk_id, collection_id);
-            if (i++ > 3) break;
         }
+        sql = `update collections set imageList=${imageList}' where collection_id = '${collection_id}'`;
+        res = await doQuery(sql); 
     } catch (err) {
         //        console.log(err);
         throw err;
@@ -173,6 +178,6 @@ cleanUp().then ((status) =>{
     console.log(status);
 })
 */
-setTimeout( loadfinaljson, 3000);
+setTimeout( loadfinaljson, 1000);
 
 getTime('About to exit');

@@ -15,6 +15,29 @@ con.connect((err) => {
     }
     console.log('1. connected as id ' + con.threadId);
 });
+function doQuery(sql) {
+    return new Promise((resolve, reject) => {
+        if (debug) console.log(`\nin doQuery SQL = ${sql}`);
+        con.query(sql, (error, result, fields) => {
+            if (error) {
+                console.log(`Error: ${error}, \n SQL=${sql}`);
+                reject(error);
+            }
+            if (debug) console.log(`in doQuery - result = ${JSON.stringify(result)}`);
+            //            ans = JSON.parse(JSON.stringify(result[0]));
+            if (result.affectedRows !== undefined) {
+                resolve(result.affectedRows);
+            } else {
+                if (result[0] !== undefined) {
+                    resolve(result);
+                } else {
+                    resolve(null);
+                }
+            }
+        })
+    })
+}
+//========================================================================
 // add a new collection to a chunk, return the collection including the collection_id
 // @input : col_json : JSON string
 // @process: create the collection, add it's ID to the chunk 
@@ -43,70 +66,59 @@ async function addNewCollection(col_json, chunk_id) {
         throw err;
     }
 }
-async function getImages(chunk_id, isApproved, isPlate){
-    console.log(`\n\nchunk_id, isApproved, isPlate, ${chunk_id}, ${isApproved}, ${isPlate}`);
-    sql = `select * from collections 
-        where chunk_id='${chunk_id}' and approved = ${isApproved} and plate_type = ${isPlate} LIMIT 1`;
-    collection = await doQuery(sql);
-    console.log(`\n\nin getImages images =  ${JSON.stringify(collection)}`); 
-    collection_id = collection.collection_id;
-    sql = `call test1('${collection_id}')`;
-    images = await doQuery(sql);
-    console.log(`\n\nin getImages images =  ${JSON.stringify(images)}`); 
-
-    return (`{"collection":{${JSON.stringify(collection)},"images":${JSON.stringify(images)}}`) ;   
+/*
+Internal routine for the function removeImageFromCollection
+*/
+async function getCollectionByID(in_collection_id) {
+    try {
+        sql = `select * from collections where collection_id='${in_collection_id}'`;
+        collection = await doQuery(sql);
+        if (Array.isArray(collection)){
+            collection_id = collection[0].collection_id;
+        } else {
+            collection_id = collection.collection_id;
+        }
+        sql = `select * from images where collection_id = '${collection_id}'`;
+        images = await doQuery(sql);
+        imageList = '';
+        psik='';
+        images.forEach(image =>{
+            imageList += psik+image.image_id;
+            psik=',';
+        })
+        sql=`update collections set colOnWork=true, imageList='${imageList}' where collection_id='${collection_id}'`;
+        res = await doQuery(sql); 
+        collection.imageList = imageList;
+       console.log(`\n collection.imageList = ${collection.imageList}`);
+        return (`{"collection":{${JSON.stringify(collection)},"images":${JSON.stringify(images)}}`);
+        } catch (err) {
+        console.log(err);
+        throw err;
+    }
 }
+
 /// getCollection(chunk_id:string, isApproved:boolean, isPlate:boolean)
 // collection.plate = isPlate וגם collection.approve = isApproved וגם onWork = false וגם status=false .
 async function getCollection(chunk_id, isApproved, isPlate) {
-    let collection = '';
-    sql = "select c2.id, col_json, collection_id from chunks c1 join collections c2 on \
-            json_search(`chk_json`->>'$.collections', 'one', c2.collection_id)\
-            where chunk_id='"+ chunk_id + "' \
-            and colOnWork = false  and JSON_EXTRACT (`col_json`, '$.status') = false\
-            and JSON_EXTRACT (`col_json`, '$.approved') = " + isApproved + " LIMIT 1 for update";
-    try {
-        collection = await doQuery(sql);
-        console.log(`in getCollection collection = ${JSON.stringify(collection)}`);
-        console.log(`in getCollection parsed collection = ${collection.id}, ${collection.collection_id}`);
-        //        return collection ;
-    } catch (err) {
-        console.log(err);
-        throw err;
+    sql = `select * from collections 
+        where chunk_id='${chunk_id}' and approved = ${isApproved} and colOnWork=false and plate_type = ${isPlate} LIMIT 1`;
+    collection = await doQuery(sql);
+    if (Array.isArray(collection)){
+        collection_id = collection[0].collection_id;
+    } else {
+        collection_id = collection.collection_id;
     }
-    try {
-        TTR = Date.now() + TTRDelay;
-        sql1 = `insert into unlockonwork set tableName='collections', id=${collection.id}, TTR=${TTR}`;
-        await doQuery(sql1);
-
-    } catch (err) {
-        console.log(err);
-        throw err;
-    }
-    try {
-        sql2 = `update collections set colOnWork=true where id=${collection.id}`;
-        await doQuery(sql2);
-
-    } catch (err) {
-        console.log(err);
-        throw err;
-    }
-    ans = JSON.parse(collection.col_json);
-    ans.collection_id = collection.collection_id;
-    ans.onWork = true;
-    return ans;
+    return getCollectionByID(collection_id);
 }
+/*
+•	freeCollection(collection_id)
+משנה במקבץ: onWork=true.
+מחזיר: הצליח/לא הצליח. true/false))
+*/
 async function freeCollection(collection_id) {
     try {
         sql = `update collections set colOnWork=false where collection_id='${collection_id}'`;
         freeResult = await doQuery(sql);
-        console.log(result);
-        //        return result;
-    } catch (err) {
-        console.log(err);
-        throw err;
-    }
-    try {
         sql = `delete from unlockonwork  where tableName='collections' and collection_id='${collection_id}'`;
         result = await doQuery(sql);
         console.log(result);
@@ -116,43 +128,86 @@ async function freeCollection(collection_id) {
         throw err;
     }
 }
+/*
+•	removeImageFromCollection(collection_id:string, image_id:string)
+מסיר את ה-reference לתמונה במקבץ, ושם reference לתמונה ב-singles
+מחזיר: את המקבץ המעודכן.
+*/
 async function removeImageFromCollection(in_collection_id, in_image_id) {
-    sql = `call removeImageFromCollection('${in_collection_id}', '${in_image_id}')`;
     try {
+        sql = `update images set collection_id='-' where image_id='${in_image_id}')`;
         result = await doQuery(sql);
-        console.log(result);
-        return result;
+        return getCollectionByID(in_collection_id);
     } catch (err) {
         console.log(err);
         throw err;
     }
 }
-async function splitCollection(collection_id, chunk_id, index) {
-    sql = `select col_json from collections where collection_id = '${collection_id}'`;
+/*
+•	splitCollection(chunk_id:string, collection_id:string, index:number)
+מחלק את התמונות במקבץ ל-2 קבוצות, משמאל ומימין לאינדקס.
+יוצר 2 מקבצים חדשים, עם אותם נתונים של המקבץ המחולק, וכל קבוצת תמונות משוייכת למקבץ אחר.
+מסיר את המקבץ מה-chunk המתאים ושם במקומו את 2 החדשים.
+מוחק את המקבץ מרשימת המקבצים.
+מחזיר: את המקבץ ה"ימני" (מהאינדקס לסוף הרשימה).
+
+*/
+async function splitCollection(collection_id, chunk_id, splitIndex) {
     try {
-        col_json = await doQuery(sql);
+        sql = `select * from collections where collection_id = '${collection_id}'`;
+        collection = await doQuery(sql);
+        if (Array.isArray(collection)){
+            imageList = collection[0].imageList.split(',');
+        } else {
+            imageList = collection.imageList.split(',');
+        }
+        console.log(`imageList = ${imageList}`);
+        imgR = ''; psik='';
+        images = imageList.slice(splitIndex);
+        images.forEach(e=>{
+            imgR += psik + `${e}`;
+            psik = ', ';
+        })
+        imgL = ''; psik='';
+        images = imageList.slice(0, splitIndex);
+        images.forEach(e=>{
+            imgL += psik + `${e}`;
+            psik = ', ';
+        })
+        sql = `call splitCollection("${imgL}", "${imgR}", '${collection_id}', '${chunk_id}')`;
+        collection = await doQuery(sql);
+        console.log(`\ncollection = ${collection}`);
+        console.log(`\ncollection[0] = ${collection[0]}`);
+        console.log(`\ncollection[0][0] = ${collection[0][0]}`);
+        if (Array.isArray(collection)){
+            collection = collection[0];
+            collection = collection[0]
+        } 
+        console.log(collection);
+        sql = `select 
+       
+    image_id,
+    chunk_id,
+    collection_id,
+    imgOnWork,
+    path,
+    transaction,
+    gate,
+    img_time,
+    img_date,
+    motor_crop,
+    plate_crop,
+    rejection,
+    onWork
+
+
+from images where collection_id = '${collection.collection_id}'`;
+        images = await doQuery(sql);
+        return (`{"collection":{${JSON.stringify(collection)},"images":${JSON.stringify(images)}}`);
     } catch (err) {
         console.log(err);
         throw err;
     }
-    col_right = JSON.parse(col_json.col_json);
-    col_left = JSON.parse(col_json.col_json);
-    images = col_right.images;
-
-    col_right.images = images.slice(index);
-    col_left.images = images.slice(0, index);
-    coll_r = JSON.stringify(col_right);
-    coll_l = JSON.stringify(col_left);
-    sql = `select splitCollection('${coll_l}', '${coll_r}', '${collection_id}', '${chunk_id}') as collection`;
-    try {
-        result = await doQuery(sql);
-        console.log(result);
-    } catch (err) {
-        console.log(err);
-        throw err;
-    }
-    return result;
-
 }
 /*
 approveCollection(chunk_id:string, collection_id:string)
@@ -210,7 +265,7 @@ disapproveCollection(chunk_id:string, collection_id:string)
 מחזיר: getCollection(chunk_id, true, false)
 
 */
-async function disapproveCollection(chunk_id, collection_id){
+async function disapproveCollection(chunk_id, collection_id) {
     try {
         sql = `update collections set colOnWork=false, col_json=JSON_REPLACE(col_json, '$.approved', false) where collection_id='${collection_id}'`;
         status = await doQuery(sql);
@@ -227,14 +282,14 @@ rejectImages(chunk_id:string, collection_id:string, reason:string)
 משנה במקבץ: onWork=false.
 מחזיר: getCollection(chunk_id, true, true)
 */
-async function rejectImages(chunk_id, collection_id, reason){
+async function rejectImages(chunk_id, collection_id, reason) {
     try {
         sql = `select JSON_EXTRACT(col_json, '$.images') as images from collections where collection_id='${collection_id}'`;
         images = await doQuery(sql);
         images = JSON.parse(images.images);
         await images.forEach(element => {
             sql = `update images set img_json =  JSON_INSERT(img_json, '$.rejection', '${reason}') where image_id='${element}'`;
-            res =  doQuery(sql);
+            res = doQuery(sql);
         });
         sql = `update collections set colOnWork=false, col_json=JSON_REPLACE(col_json, '$.status', true) where collection_id='${collection_id}'`;
         status = await doQuery(sql);
@@ -254,13 +309,13 @@ setCollectionPlate(chunk_id:string, collection_id:string, plate:{type:number,num
 מחזיר: את getCollection(chunk_id, true, isPlate)
 */
 
-async function setCollectionPlate(chunk_id, collection_id, plate, isPlate){
+async function setCollectionPlate(chunk_id, collection_id, plate, isPlate) {
     plate = JSON.parse((plate));
     console.log(`plate number is ${plate.number}`);
     try {
         sql = `update collections set colOnWork=false, col_json=JSON_REPLACE(col_json, '$.plate', '${JSON.stringify(plate)}'`;
         if (plate.number.search(/\?/) === -1) {
-            status=true;
+            status = true;
             sql = sql + `, '$.status', ${status}`;
         }
         sql = sql + `) where collection_id='${collection_id}'`;
@@ -279,7 +334,7 @@ o	לשים image.plate=collection.plate
 o	להעביר את התמונה מimages- לtransactions-
 מחזיר: הצליח/לא הצליח true/false))
 */
-async function closeCollections(chunk_id){
+async function closeCollections(chunk_id) {
     try {
         sql = `select collection_id from collections ollections set colOnWork=false, col_json=JSON_REPLACE(col_json, '$.approved', false) where collection_id='${collection_id}'`;
         status = await doQuery(sql);
@@ -290,40 +345,17 @@ async function closeCollections(chunk_id){
     return successStatus;
 }
 // ==============================================================
-function doQuery(sql) {
-    return new Promise((resolve, reject) => {
-if (debug)  console.log(`\nin doQuery SQL = ${sql}`);
-        con.query(sql, (error, result, fields) => {
-            if (error) {
-                console.log(`Error: ${error}, \n SQL=${sql}`);
-                reject(error);
-            }
-if (debug)            console.log(`in doQuery - result = ${JSON.stringify(result)}`);
-            //            ans = JSON.parse(JSON.stringify(result[0]));
-            if (result.affectedRows !== undefined) {
-                resolve(result.affectedRows);
-            } else {
-                if (result[0] !== undefined) {
-                    resolve(result[0]);
-                } else {
-                    resolve(null);
-                }
-            }
-        })
-    })
-}
 
 module.exports = {
-    getCollection, 
+    getCollection,
     addNewCollection,
     freeCollection,
     removeImageFromCollection,
-    splitCollection,   
+    splitCollection,
     approveCollection,
     spreadCollection,
-    disapproveCollection,  
+    disapproveCollection,
     rejectImages,
     setCollectionPlate,
-    closeCollections,
-    getImages
-} ;
+    closeCollections
+};

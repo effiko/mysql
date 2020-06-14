@@ -42,8 +42,9 @@ app.post('/splitCollection', async (req, res) => {
     beginTime = Date.now();
     collection_id = req.body.collection_id;
     chunk_id = req.body.chunk_id;
-    index = req.body.splitIndex;
-    result = await api.splitCollection(collection_id, chunk_id, index);
+    splitIndex = req.body.splitIndex;
+    console.log(`splitCollection(${collection_id}, ${chunk_id}, ${splitIndex});`);
+    result = await api.splitCollection(collection_id, chunk_id, splitIndex);
     console.log(result);
     res.send(result + getTime('/splitCollection'));
 });
@@ -94,16 +95,7 @@ app.post('/setCollectionPlate', async (req, res) => {
     console.log(result);
     res.send(result + getTime('/setCollectionPlate'));
 });
-app.post('/getImages', async (req, res) => {
-    beginTime = Date.now();
-    chunk_id = req.body.chunk_id;
-    isApproved = req.body.isApproved;
-    isPlate = req.body.isPlate;
 
-    result = await api.getImages(chunk_id, isApproved, isPlate);
-    console.log(result);
-    res.send(result + getTime('/getImages'));
-})
 // ==============================================================
 
 beginTime = Date.now();
