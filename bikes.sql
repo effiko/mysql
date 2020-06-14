@@ -13,12 +13,10 @@
 
 
 -- Dumping database structure for bikes
-DROP DATABASE IF EXISTS `bikes`;
 CREATE DATABASE IF NOT EXISTS `bikes` /*!40100 DEFAULT CHARACTER SET utf8 */ /*!80016 DEFAULT ENCRYPTION='N' */;
 USE `bikes`;
 
 -- Dumping structure for table bikes.chunks
-DROP TABLE IF EXISTS `chunks`;
 CREATE TABLE IF NOT EXISTS `chunks` (
   `id` int(11) NOT NULL AUTO_INCREMENT,
   `chunk_id` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci DEFAULT NULL,
@@ -30,23 +28,21 @@ CREATE TABLE IF NOT EXISTS `chunks` (
 
 -- Data exporting was unselected.
 -- Dumping structure for table bikes.collections
-DROP TABLE IF EXISTS `collections`;
 CREATE TABLE IF NOT EXISTS `collections` (
   `id` int(11) NOT NULL AUTO_INCREMENT,
-  `collection_id` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci DEFAULT NULL,
-  `chunk_id` varchar(45) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci DEFAULT NULL,
+  `collection_id` varchar(50) COLLATE utf8mb4_general_ci DEFAULT NULL,
+  `chunk_id` varchar(45) COLLATE utf8mb4_general_ci DEFAULT NULL,
   `approved` tinyint(4) DEFAULT '0',
   `plate_type` int(11) DEFAULT '0',
-  `plate_number` varchar(45) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci DEFAULT NULL,
+  `plate_number` varchar(45) COLLATE utf8mb4_general_ci DEFAULT NULL,
   `colOnWork` tinyint(4) DEFAULT '0',
+  `imageList` varchar(1024) COLLATE utf8mb4_general_ci DEFAULT NULL,
   PRIMARY KEY (`id`),
   UNIQUE KEY `collection_id` (`collection_id`)
-) ENGINE=InnoDB AUTO_INCREMENT=274 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
-
+) ENGINE=InnoDB AUTO_INCREMENT=276 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
 -- Data exporting was unselected.
 -- Dumping structure for table bikes.evidences
-DROP TABLE IF EXISTS `evidences`;
 CREATE TABLE IF NOT EXISTS `evidences` (
   `id` int(11) NOT NULL AUTO_INCREMENT,
   `image_id` varchar(45) DEFAULT NULL,
@@ -56,7 +52,6 @@ CREATE TABLE IF NOT EXISTS `evidences` (
 
 -- Data exporting was unselected.
 -- Dumping structure for table bikes.images
-DROP TABLE IF EXISTS `images`;
 CREATE TABLE IF NOT EXISTS `images` (
   `id` int(11) NOT NULL AUTO_INCREMENT,
   `image_id` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci DEFAULT NULL,
@@ -76,11 +71,19 @@ CREATE TABLE IF NOT EXISTS `images` (
   UNIQUE KEY `image_id` (`image_id`),
   KEY `collection_id` (`collection_id`) /*!80000 INVISIBLE */,
   KEY `chunk_id` (`chunk_id`)
-) ENGINE=InnoDB AUTO_INCREMENT=921 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=938 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- Data exporting was unselected.
+-- Dumping structure for table bikes.mot_bikes
+CREATE TABLE IF NOT EXISTS `mot_bikes` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `plate` varchar(32) NOT NULL,
+  `data` text NOT NULL,
+  PRIMARY KEY (`id`)
+) ENGINE=InnoDB AUTO_INCREMENT=1186857 DEFAULT CHARSET=utf8;
 
 -- Data exporting was unselected.
 -- Dumping structure for function bikes.newChunk
-DROP FUNCTION IF EXISTS `newChunk`;
 DELIMITER //
 CREATE DEFINER=`root`@`localhost` FUNCTION `newChunk`(
 	`chunk` TEXT
@@ -96,11 +99,11 @@ BEGIN
 END//
 DELIMITER ;
 
--- Dumping structure for function bikes.newCollection1
-DROP FUNCTION IF EXISTS `newCollection1`;
+-- Dumping structure for function bikes.newCollection
 DELIMITER //
-CREATE DEFINER=`root`@`localhost` FUNCTION `newCollection1`(
+CREATE DEFINER=`root`@`localhost` FUNCTION `newCollection`(
 	`in_chunk_id` VARBINARY(50)
+
 
 
 ) RETURNS varchar(64) CHARSET utf8mb4
@@ -115,10 +118,9 @@ BEGIN
 END//
 DELIMITER ;
 
--- Dumping structure for function bikes.newImage1
-DROP FUNCTION IF EXISTS `newImage1`;
+-- Dumping structure for function bikes.newImage
 DELIMITER //
-CREATE DEFINER=`root`@`localhost` FUNCTION `newImage1`(
+CREATE DEFINER=`root`@`localhost` FUNCTION `newImage`(
 	`in_chunk_id` VARCHAR(50),
 	`in_collection_id` VARCHAR(50),
 	`in_transaction` VARCHAR(50),
@@ -126,8 +128,14 @@ CREATE DEFINER=`root`@`localhost` FUNCTION `newImage1`(
 	`img_date` VARCHAR(50),
 	`img_time` VARCHAR(50),
 	`motor_crop` VARCHAR(50),
-	`plate_crop` VARCHAR(50),
+	`plate_crop` VARCHAR(50)
+,
 	`path` VARCHAR(250)
+
+
+
+
+
 ) RETURNS varchar(64) CHARSET utf8mb4
     NO SQL
     COMMENT 'insert into the images table, create an image_id string as md5 o'
@@ -144,61 +152,51 @@ VALUES
 END//
 DELIMITER ;
 
--- Dumping structure for procedure bikes.removeImageFromCollection
-DROP PROCEDURE IF EXISTS `removeImageFromCollection`;
+-- Dumping structure for procedure bikes.splitCollection
 DELIMITER //
-CREATE DEFINER=`root`@`localhost` PROCEDURE `removeImageFromCollection`(
-	IN `in_collection_id` VARCHAR(50),
-	IN `in_image_id` VARCHAR(50)
+CREATE DEFINER=`root`@`localhost` PROCEDURE `splitCollection`(
+	IN `coll_l` text,
+	IN `coll_r` text,
+	IN `old_coll_id` VARCHAR(50),
+	IN `in_chunk_id` VARCHAR(50)
+
 
 )
-    COMMENT 'מסיר את ה- reference לתמונה במקבץ, ושם reference לתמונה ב- singles'
 BEGIN
-DECLARE v_chunk_id VARCHAR(50);
-DECLARE v_path_to_remove VARCHAR(50);
-SET collation_connection = 'utf8_general_ci';
-select chunk_id into v_chunk_id from chunks where json_search(chk_json->>'$.collections', 'one', in_collection_id) limit 1;
-select json_unquote(json_search(col_json, 'all', in_image_id)) into v_path_to_remove from collections where collection_id = in_collection_id limit 1;
-update collections set col_json = json_remove(col_json, v_path_to_remove) where collection_id =in_collection_id;
-update chunks set chk_json = JSON_MERGE_PRESERVE(chk_json->>'$.singles', JSON_OBJECT("singles", in_image_id)) where chunk_id = v_chunk_id;
-select col_json from collections where collection_id = in_collection_id limit 1;
-
-END//
-DELIMITER ;
-
--- Dumping structure for function bikes.splitCollection
-DROP FUNCTION IF EXISTS `splitCollection`;
-DELIMITER //
-CREATE DEFINER=`root`@`localhost` FUNCTION `splitCollection`(
-	`coll_l` text, `coll_r` text, `old_coll_id` VARCHAR(50), `in_chunk_id` VARCHAR(50)
-) RETURNS text CHARSET utf8
-BEGIN
-	insert into collections set `col_json`=coll_r, `colOnWork`=true ;
+	insert into collections set chunk_id=in_chunk_id, imageList=coll_r, `colOnWork`=true ;
 	set @id = LAST_INSERT_ID();
     set @coll_r_id     = md5(@id);
     update collections set `collection_id` = @coll_r_id where `id`=@id;
     insert into unlockonwork set tableName = 'collections', id= @coll_r_id, TTR=UNIX_TIMESTAMP()+600;
 
-	insert into collections set `col_json`=coll_l, `colOnWork`=false ;
+	insert into collections set chunk_id=in_chunk_id, imageList=coll_l, `colOnWork`=false ;
 	set @id = LAST_INSERT_ID();
+  set @coll_l_id     = md5(@id);
     set @coll_l_id = md5(@id);
     update collections set `collection_id` = @coll_l_id where `id`=@id;
 
-    update chunks set chk_json =
-    JSON_ARRAY_APPEND(chk_json, '$.collections', @coll_r_id, '$.collections', @coll_l_id)
-    where chunk_id = in_chunk_id;
+/*
+   set @sql = concat("UPDATE `TABLE` SET `Column` = 'value'
+                      WHERE `TABLE`.Id in (" , list_of_ids , ")");
 
-     delete from collections where collection_id = old_coll_id;
-    update chunks set chk_json =
-    JSON_REMOVE(chk_json, JSON_UNQUOTE(JSON_SEARCH(chk_json->'$.collections', 'one', old_coll_id)))
-    where chunk_id = in_chunk_id;
-    set @collection = concat (coll_r, "'collection_id':'", @coll_r_id, "'");
-	RETURN @collection ;
+    PREPARE stmt FROM @sql;
+    EXECUTE stmt;
+
+*/
+set @sql = concat ("update images set collection_id=@coll_l_id where image_id in (" , coll_l, ")");
+prepare stmt from @sql ;
+execute stmt;
+
+ set @sql = concat ("update images set collection_id=@coll_r_id where image_id in (" , coll_r, ")");
+prepare stmt from @sql ;
+execute stmt;
+
+  delete from collections where collection_id = old_coll_id;
+	select * from collections where collection_id=@coll_r_id;
 END//
 DELIMITER ;
 
 -- Dumping structure for procedure bikes.test1
-DROP PROCEDURE IF EXISTS `test1`;
 DELIMITER //
 CREATE DEFINER=`root`@`localhost` PROCEDURE `test1`(
 	IN `in_collection_id` VARCHAR(50)
@@ -210,7 +208,6 @@ END//
 DELIMITER ;
 
 -- Dumping structure for procedure bikes.testp
-DROP PROCEDURE IF EXISTS `testp`;
 DELIMITER //
 CREATE DEFINER=`root`@`localhost` PROCEDURE `testp`()
 BEGIN
@@ -219,7 +216,6 @@ END//
 DELIMITER ;
 
 -- Dumping structure for table bikes.unlockonwork
-DROP TABLE IF EXISTS `unlockonwork`;
 CREATE TABLE IF NOT EXISTS `unlockonwork` (
   `tableName` varchar(32) NOT NULL,
   `id` int(11) NOT NULL,
